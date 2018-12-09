@@ -1,0 +1,712 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+---
+title: "Customer Review of Airbnb"
+author: "Qixuan Zhang"
+date: "12/1/2018"
+output:
+  pdf_document: default
+ 
+#Abstract
+The innovation of this study is creat a the Airbnb seedusing sentiment
+This study investigate key factors that influence Airbnb customer experiences by analysing big data set of online review comments through the process of text mining and sentiment analysis. The innovation for this study is using latent rating regression model combined sentiments scores of customers' comments and reviews scores of several aspects from Airbnb to get more accuracy results. From our analysis, we found price is not the curcial factor infuence customers' experience. Finding reveal that .....(I am still working hard on the it)
+Methodologically, this study contributes to imporve satisfication of customers and illustrate how big data can be used and visually interpreted in marketing studies.
+#1.Introduction
+##1.1 Background
+With advantages of price, there is no doubt Airbnb is becoming the best choice of more and more people. Due to hihg volume of customers,it is crucial for hosts to provide a comfortable and high quality room for customers. Based on those privous studies, most of reaserchers paied more attention to listing dataset, they analyzed customers experience by using reviews rate as response variable and took economy_based variables as predictors.
+
+In this study, we used sentiment analysis get the mean sentiments scores of each aprtment in the cleaned listing dataset. And then we will use sentiment scores as response to fit our models and compare the results with the results based on traditional response(review rating/value).
+
+More specifecally, we will compared customer reviews from different cities. And then we figure out the key attributes that influence customers reviews and give some suggestions to improve customer reviews rate.
+#2 Data preparation
+```{r,echo=FALSE,warning=FALSE}
+###Load Package
+library(webshot)
+library(ggplot2)
+library(DT)
+library(gridExtra)
+library(tidytext)
+library(tidyverse)
+library(tm)
+library(scales)
+library(broom)
+library(ggthemes)
+library(broom)
+library(tibble)
+library(sentimentr)
+library(stringr)
+library(readr)
+library(dplyr)
+library(wordcloud)
+library(RColorBrewer)
+library(pROC)
+library(tidyr)
+library(MASS)
+library(knitr)
+library(arm)
+library(rgdal)
+library(car)
+library(lmtest)
+library(leaflet)
+```
+#2.1.1 Cleaning Dataset and summary variables
+
+```{r,echo=FALSE,warning=FALSE}
+###Load Raw Dataset
+Bos_listing<-read.csv("/Users/qixuanzhang/Desktop/Boston_listings.csv")
+#View(Bos_listing)
+Boston_review<-read.csv("/Users/qixuanzhang/Desktop/Boston_review.csv",stringsAsFactors = FALSE)
+###Cleaning Dataset
+Boston_listing1<-Bos_listing[,-c(2,3,4,5,6,7,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,30,31,32,33,35,36,37,38,39,41,42,43,44,45,46,47,48,51,58,59,60,62,63,64,66,67,68,69,70,72,73,74,75,76,78,79,86,87,88,89,90,91,92,93,94,95,96)]
+#Delete NA of Boston_listing dataset,filter the price and number of reviews
+Boston_listing11<-na.omit(Boston_listing1,cols="review_scores_rating")
+Boston_listing111<-na.omit(Boston_listing11,cols="price")
+Boston_listing1111<-na.omit(Boston_listing111,cols="review_scores_accuracy")
+Boston_listing11111<-Boston_listing111%>% filter(number_of_reviews>=3)
+Boston_listing<-Boston_listing11111%>%filter(price<=1000)
+```
+
+
+
+
+#3.Exploratory Data Analysis
+##3.1 EDA of Boston customers reviews
+###3.1.1 Distribution of Airbnb customers' reviews in Boston
+To give our reader a more observable visualization, we made a leaflet to describe the review scores distribution at first.We made blue represent, with stronger and stornger of the green color, the review scores rating are higher.
+Following leaflet plot of Boston reviews, we made a histogram plot to describe reviews of Boston.
+```{r,echo=FALSE,warning=FALSE}
+#factpal <- colorFactor(topo.colors(25), Boston_listing$property_type)
+
+#popup <- paste0("<strong>'hood: </strong>", Boston_listing$property_type)
+
+#leaflet(Boston_listing) %>% addTiles() %>%
+  #addCircleMarkers(~longitude, ~latitude,
+ 
+    #troke = FALSE, fillOpacity = 0.5, radius = 2,
+    #popup = ~popup)
+ 
+pal <- colorQuantile(
+  palette = "BuGn",
+  domain = Boston_listing$review_scores_rating
+)
+leaflet(Boston_listing) %>% addTiles() %>%
+  addCircles(lng = ~longitude, lat = ~latitude, weight = 1,
+    popup = ~price, radius = 50, 
+    color = ~pal(review_scores_rating), fillOpacity = 1)
+#Whole distribution
+b1<-Boston_listing %>% group_by(review_scores_rating)%>%
+  summarise(count=n())
+ggplot(b1,aes(x=reorder(review_scores_rating,-count),y=count))+geom_histogram(binwidth = 0.09,stat="identity",fill="light green")+labs(title="Figure3.1 Revies Rate Distribution of Boston",x="Review Scores Rating",y="Counts")+theme_minimal()
+#Datatable
+```
+
+```{r,echo=FALSE,warning=FALSE}
+
+
+
+datatable(head(b1, 39), options = list(
+  initComplete = JS(
+    "function(settings, json) {",
+    "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+    "}")
+))
+
+```
+
+```{r,echo=FALSE,warning=FALSE}
+best<-rep(0,length(Boston_listing$review_scores_rating))
+for(i in 1:length(best)){
+  if (Boston_listing$review_scores_rating[i]>=90){
+    best[i]="good"
+  }
+  if(Boston_listing$review_scores_rating[i]<=70){
+    best[i]="bad"
+  }
+ if(Boston_listing$review_scores_rating[i]>70&Boston_listing$review_scores_rating[i]<90){
+   best[i]="normal"
+ }
+}
+Boston_listing<-Boston_listing %>% mutate("Evaluation"=best)
+#leaflet(data = Boston_listing) %>%  
+ #addTiles() %>%
+  #addCircleMarkers(~longitude, ~latitude,radius = ifelse(Boston_listing$review_scores_rating > 90, 2, 0.2),color = ifelse(Boston_listing$review_scores_rating > 90, "blue", "red"),fillOpacity = 0.4)
+#As we want to classify our review scores rating to three parts,
+#To visualize our dataset and consider which variables we would like to analyze in the next step,we divided reviews scores rating to three parts, we chose review scores rating more than 90 as good reviews part.And
+#We add "Evaluation" as a new foctor variable to descripte value of review scores rating.
+```
+
+
+
+
+```{r,echo=FALSE,warning=FALSE}
+#Review rate distribution of Airbnb 
+#Make the Histogram plot and table of Top 15 counts of review rate
+#Make a comparision about Top11 best review_rate and Top11 worse review_rate
+#b<-Boston_listing %>% group_by(review_scores_rating)%>%
+# summarize(count=n())%>% top_n(n=20,wt=count)
+#View(b)
+
+b1<-Boston_listing %>% group_by(review_scores_rating)%>%
+  summarise(count=n())
+#Whole distribution
+ggplot(b1,aes(x=reorder(review_scores_rating,-count),y=count))+geom_histogram(binwidth = 0.09,stat="identity",fill="light green")+labs(title="Figure3.1 Revies Rate Distribution of Boston",x="Review_Rate",y="Counts")+theme_minimal()
+#Datatable
+datatable(head(b1, 39), options = list(
+  initComplete = JS(
+    "function(settings, json) {",
+    "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+    "}")
+))
+
+
+```
+
+
+```{r,echo=FALSE,warning=FALSE}
+#dim(Boston_listing)
+#Boston_listingg<-Boston_listing %>% mutate("best"=filter(review_scores_rating>=90))
+#View(Boston_listing)
+#Boston_listing$description <- as.character(Boston_listing$description)
+#Boston_listing$neighbourhood_cleansed <- factor(Boston_listing$neighbourhood_cleansed)
+#Boston_listing$host_is_superhost <- factor(Boston_listing$host_is_superhost)
+#As we want to classify the homestays into 2 categories, affordable and pricey, based on price column. To do that we first extract the 50th percentile review rate value.
+#Bosotn_reviews<-left_join(Bos_review,Boston_listing,by="id")
+
+#Boston_listing$review_scores_rating
+#ggplot(Boston_listing,aes(x=price,y=review_scores_rating))+geom_bar(width =30,stat="identity",fill="light blue")+scale_x_continuous(breaks=seq(0,1000,by=100))
+room_type<-Boston_listing %>% filter(review_scores_rating>=69)%>% group_by(review_scores_rating,room_type)%>%
+  summarise(count=n())
+
+pro_type<-Boston_listing %>% filter(review_scores_rating>=70)%>% group_by(review_scores_rating,property_type)%>%
+  summarise(count=n())
+
+n<-Boston_listing%>% filter(review_scores_location>=7)%>%
+  group_by(neighbourhood_cleansed,review_scores_location)%>%
+  summarise(count=n())
+
+ggplot(n,aes(x=review_scores_location,y=count,fill=neighbourhood_cleansed))+geom_bar(width=0.9,stat="identity")+labs(title = "Figure 3.2 Review Scores Location Of Different Neighbourhood",x="Review Scores Location",y="count")+theme_minimal()
+
+
+ggplot(room_type,aes(x=review_scores_rating,y=count,fill=room_type))+geom_bar(width=0.9,stat="identity")+labs(title="Figure 3.3 Review Scores Rating of Different Room Type",x="Review Scores Rating",y="count")+theme_minimal()
+
+ggplot(pro_type,aes(x=review_scores_rating,y=count,fill=property_type))+geom_bar(width=0.9,stat="identity")+labs(title="Figure 3.4 Review Scores Rating of Different Property Type",x="Review Scores Rating",y="count")+theme_minimal()
+
+ggplot(Boston_listing,aes(x=room_type,y=review_scores_rating,fill=Evaluation))+geom_bar(width = 0.9,stat="identity")
+ggplot(Boston_listing,aes(x=neighbourhood_cleansed,y=review_scores_rating,fill=room_type))+geom_bar(width = 0.9,stat="identity")+theme(axis.text.x = element_text(angle=45,vjust = 0.75,size = 10))+labs(title = )
+ggplot(Boston_listing,aes(x=review_scores_rating))+geom_histogram(aes(fill=accommodates),binwidth = 0.9)+theme(axis.text.x = element_text(angle=45,vjust = 0.75,size = 10))
+Boston_listing$accommodates
+```
+
+
+
+
+
+
+
+
+Compared review scores rating distribution under different property type,differnt accommodates,neighborhood.
+```{r,echo=FALSE,warning=FALSE}
+#Boston review distribution
+ggplot(n, aes(x=review_scores_location,fill=neighbourhood_cleansed)) + geom_density(alpha=0.3)
+ theme_minimal()
+ggplot(Boston_listing, aes(x=review_scores_rating,fill=factor(Boston_listing$accommodates))) + geom_density(alpha=0.3)+
+ theme_minimal()       
+Boston_listing$property_type
+ggplot(Boston_listing, aes(y=review_scores_rating,x=price)) + geom_point(color="green")+
+ theme_minimal()
+```
+And then we compared the distribution of top 11 best reviews and top 11 worse reviews in Boston.
+```{r,echo=FALSE,warning=FALSE}
+b22<-Boston_listing %>% filter(review_scores_rating>=90)
+b2<- b22%>% group_by(review_scores_rating)%>%
+  summarise(count=n())
+b23<-Boston_listing%>% filter(review_scores_rating<75)
+b3<-b23%>% group_by(review_scores_rating)%>%
+  summarise(count=n())%>% top_n(n=11,wt=count)
+#View(b3)
+b75<-ggplot(b3,aes(x=reorder(review_scores_rating,-count),y=count))+geom_histogram(binwidth=0.09,stat="identity",fill="green")+labs(tittle="Figure 3.6 TOP 11 Worse Review Scores Rating in Boston",x="Review Scores Rating",y="Count")+theme_minimal()
+
+b90<-ggplot(b2,aes(x=reorder(review_scores_rating,-count),y=count))+geom_histogram(binwidth=0.09,stat="identity",fill="#FFCCFF")+labs(title="Figure 3.6 TOP 11 Best&Worse Reviews Scores Rating in Boston",x="Review Scores Rating",y="Count")+theme_minimal()
+grid.arrange(b90,b75)
+```
+Furthermore, we plot the Price Distribution in Boston to decide the meaningful interval of price that we plan to analze in the next step.
+```{r,echo=FALSE,warning=FALSE}
+#Price distribution of Airbnb
+a<- Boston_listing%>%group_by(price)%>% 
+  summarise(count=n()) %>%top_n(n=20,wt=count)
+#a1<-Boston_listing%>%group_by(price)%>% 
+  #summarize(count=n()) %>%top_n(n=5,wt=count)
+
+ggplot(a,aes(x=reorder(price,-count),y=count))+geom_histogram(binwidth = 0.09,stat="identity",fill="purple")+ labs(title = "Price Distribution in Boston",x="Price(in$)",y="Count")
+  theme_minimal()
+  
+#Frenquecy price over review rate
+
+```
+
+
+
+
+
+
+
+##3.2 Text mining Customers' Review
+Initially, we want to see the description combined with review scores. We deviede our rating scores rating to two gourp, first one is high rating group. We filter the review scores rating more than 90 as the high rating group. And then we filter the review scores rating less than 60 as low rating group. After that, we apply these methods to each city. 
+We get the plot of frequency words of low rating in Bosto as following.
+```{r,echo=FALSE,warning=FALSE}
+listing_lowrate<-Boston_listing%>%filter(review_scores_rating<=75)
+listing_highrate<-Boston_listing%>%filter(review_scores_rating>=90)
+# Initially, we want to see the description combined with review scores
+listing_low<-dplyr::select(listing_lowrate,id, description,price,property_type,room_type, review_scores_accuracy,review_scores_rating,review_scores_location,review_scores_communication)
+listing_low$description<-as.character(listing_low$description)
+is.character(listing_low$description)
+listing_high<-dplyr::select(listing_highrate,id, description,price,property_type,room_type, review_scores_accuracy,review_scores_rating,review_scores_location,review_scores_communication)
+listing_high$description<-as.character(listing_high$description)
+listing_word<-listing_low%>%
+unnest_tokens(word,description)%>%
+  filter(!word%in%stop_words$word,str_detect(word, "^[a-z']+$"))
+
+listing_word1<-listing_high%>%
+unnest_tokens(word,description)%>%
+  filter(!word%in%stop_words$word,str_detect(word, "^[a-z']+$"))
+ 
+#plot the graph
+common_listings <- listing_word %>%
+  group_by(word) %>%
+  summarise(count = n()) %>%
+  top_n(n = 30, wt = count) %>%
+  ggplot() +
+  geom_bar(mapping = aes(x=reorder(word, count),
+                         y=count),
+           stat="identity", fill = "light blue") +
+  labs(title="Figure 3.7 Top 30 words described in listings of low rating",
+       y="Word count", x="Most common Words") +
+  coord_flip() +
+  theme_minimal()
+print(common_listings)
+  
+
+#We need to use the unnest_tokens function to obtain one-row-per-term-per-listing-description
+Boston_review_s<-dplyr::select(Boston_review,id,reviewer_id,reviewer_name,comments)
+Boston_review$comments<-as.character(Boston_review$comments)
+review_words <- Boston_review_s %>%
+  unnest_tokens(word, comments) %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "^[a-z']+$"))
+View(review_words)
+dim(review_words)
+#We summarise 1000 most frequecy word of comments, and classifed it by
+#review11<-review_words%>% group_by(word)%>%
+#summarise(count=n())%>%top_n(n=1000,wt=count)
+
+#View(review11)
+
+low<-left_join(listing_low,Boston_review,by="id")
+dim(listing_low)
+dim(low)
+low$comments<-as.character(low$comments)
+high<-left_join(listing_high,Boston_review,by="id")
+high$comments<-as.character(high$comments)
+review_words_low<-low%>%
+  unnest_tokens(word,comments)%>%
+  filter(!word%in%stop_words$word,
+         str_detect(word,"^[a-z']+$"))
+
+
+review_words_high<-high%>%
+  unnest_tokens(word,comments)%>%
+  filter(!word%in%stop_words$word,
+         str_detect(word,"^[a-z']+$"))
+
+
+#plot the graph
+common_reviews <- review_words %>%
+  group_by(word) %>%
+  summarise(count = n()) %>%
+  top_n(n = 30, wt = count) %>%
+  ggplot() +
+  geom_bar(mapping = aes(x=reorder(word, count), y=count),
+           stat="identity", fill = "light green") +
+  coord_flip() +
+  labs(title="Top 30 words described in Reviews of low rating",
+       y="Word count", x="Words") +
+  theme_minimal()
+print(common_reviews)
+common_reviews_low <- review_words_low %>%
+  group_by(word) %>%
+  summarise(count = n()) %>%
+  top_n(n = 30, wt = count) %>%
+  ggplot() +
+  geom_bar(mapping = aes(x=reorder(word, count), y=count),
+           stat="identity", fill = "light green") +
+  coord_flip() +
+  labs(title="Comments Of Low Rating",y="Word count", x="Words") +
+  theme_minimal()
+common_reviews_low1 <- review_words_low %>%
+  group_by(word,id) %>%
+  summarise(count = n()) %>%
+  top_n(n =30, wt = count)
+View(common_reviews_low)
+print(common_reviews_low)
+
+
+
+#Sentimental Analysis
+
+review_words <- Boston_review%>%
+  unnest_tokens(word, comments) %>%
+  filter(!word %in% stop_words$word,str_detect(word, "^[a-z']+$"))
+review_words_s <- low %>%
+  unnest_tokens(word, comments) %>%
+  filter(!word %in% stop_words$word,str_detect(word, "^[a-z']+$"))
+
+AFINN <- sentiments %>%
+  filter(lexicon == "AFINN") 
+
+afinn<-dplyr::select(AFINN,word,score)
+
+reviews_sentiment <- review_words %>%
+  inner_join(afinn, by = "word") %>%group_by(id)%>%
+summarize(sentiment = mean(score))
+
+location_low<-common_reviews_low1%>%
+  inner_join(afinn ,by="word")%>%
+  summarize(sentiment=mean(score))
+
+reviews_sentiment<-data.frame(reviews_sentiment,stringsAsFactors = FALSE)
+#Join dataset
+
+reviews_sentiment1<-inner_join(reviews_sentiment,listing_low,by="id")
+
+View(reviews_sentiment3)
+reviews_sentiment3 <-inner_join(reviews_sentiment,Boston_listing,by="id")
+reviews_sentiment2<-inner_join(reviews_sentiment,listing_high,by="id")
+
+```
+Furthermore,we want to see the common description and comment in high reviews scores rating.We get the plot of frequency words of high rating in Boston as following.
+```{r,echo=FALSE,warning=FALSE}
+common_listings1<- listing_word1%>%
+  group_by(word) %>%
+  summarise(count = n()) %>%
+  top_n(n = 30, wt = count) %>%
+  ggplot() +
+  geom_bar(mapping = aes(x=reorder(word, count),
+                         y=count),
+           stat="identity", fill = "light pink") +
+  labs(title="Top 30 words described in listings of high review scores rating",
+       y="Word count", x="Most common Words") +
+  coord_flip() +
+  theme_minimal()
+print(common_listings1)
+common_reviews_high<-review_words_high%>%
+  group_by(word)%>%
+  summarise(count=n())%>%
+  top_n(n=30,wt=count)%>%
+  ggplot()+geom_bar(mapping = aes(x=reorder(word, count), y=count),
+           stat="identity", fill = "#FFCCFF") +
+  coord_flip() +
+  labs(title="Figure3.7Comments Of High Rating",
+       y="Word count", x="Words") +
+  theme_minimal()
+print(common_reviews_high)
+grid.arrange(common_reviews_high,common_reviews_low,nrow=1)
+View(reviews_sentiment3)
+
+```
+Sensitive analysis word cloud of high scores of customers rating in Boston compared with the low.
+```{r,echo=FALSE}
+#World cloud
+#making a data frame of words and its frequency
+cloud <- as.data.frame(listing_word %>% 
+                         group_by(word) %>%
+                         summarize(no_rows = length(word)))
+cloud1<-as.data.frame(listing_word1%>%
+                        group_by(word)%>%
+                        summarize(no_rows = length(word)))
+cloud_low<-as.data.frame(review_words_low%>%
+                           group_by(word)%>%
+                           summarize(no_rows=length(word)))
+
+cloud_high<-as.data.frame(review_words_high%>%
+                            group_by(word)%>%
+                            summarise(no_rows=length(word)))
+#cloud_low<-read.csv("/Users/qixuanzhang/Desktop/cloud_low.csv")
+
+#building the word cloud
+wordcloud(words = cloud$word, freq = cloud$no_rows, min.freq = 5,
+          max.words=150, random.order=FALSE, random.color=FALSE, rot.per=0.33, 
+          colors=brewer.pal(1, "Dark2"))
+wordcloud(words = cloud1$word,freq=cloud1$no_rows,min.freq = 10,max.words = 200,random.order = FALSE,random.color = FALSE,rot.per = 0.33,colors=brewer.pal(1, "Dark2"))
+wordcloud(words = cloud_low$word, freq = cloud_low$no_rows, min.freq =3,
+          max.words=120, random.order=FALSE, random.color=FALSE, rot.per=0.33, 
+          colors=brewer.pal(1, "Dark2"))
+
+wordcloud(words = cloud_high$word, freq = cloud_high$no_rows, min.freq = 5,
+          max.words=120, random.order=FALSE, random.color=FALSE, rot.per=0.4, 
+          colors=brewer.pal(1, "Dark2"))
+```
+
+
+Compared the high rating reviews histogram plot with low rating reviews histogram plots
+```{r,echo=FALSE}
+ggplot(reviews_sentiment2, aes(x=sentiment))+
+  geom_histogram(binwidth = 0.09, aes(fill = room_type))+
+  labs(title="Figure 3.10Distribution of Sentiment Score Of Comments For Different Room Type",
+       x="Mean AFFIN Score", y="Count") +
+  theme_minimal()
+ggplot(reviews_sentiment3, aes(x=sentiment))+
+  geom_histogram(binwidth = 0.09, aes(fill = room_type))+
+  labs(title="Figure3.11 Histogram of AFFIN lexicon sentiment score of High Review Rate",
+       x="Mean AFFIN Score", y="Count") +
+  theme_minimal()
+ggplot(reviews_sentiment2, aes(x=sentiment))+
+  geom_histogram(binwidth = 0.09, aes(fill = property_type))+
+  labs(title="Figure3.11Distribution of Sentiment Of Comments in Property",
+       x="Mean AFFIN Score", y="Count") +
+  theme_minimal()
+plot(reviews_sentiment3$sentiment)
+plot(reviews_sentiment3$review_scores_rating)
+c<-ggplot(reviews_sentiment3,aes(x=sentiment))+geom_density(alpha=0.3)+labs(title="Figure 3.12 Compared Distribution of Sentiment and Review Scores Rating",x="Sentiment Scores",y="Density")
+d<-ggplot(reviews_sentiment3,aes(x=scale(review_scores_rating)+4))+geom_density(alpha=0.4)+labs(x = "Scaled Review Scores Rating",y= "Density")
+grid.arrange(c,d)
+```
+Compared with differetn room type in Boston.
+```{r,echo=FALSE,warning=FALSE}
+ggplot(reviews_sentiment1,aes(x=sentiment))+geom_histogram(binwidth =0.09,aes(fill=room_type))+labs(title="Histogram of AFFIN lexicon sentiment score",x="Mean AFFIN Score", y="Count")+theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+#4.Model
+##3.1 Linear Regression Model
+```{r,echo=FALSE,warning=FALSE}
+set.seed(723)
+sample <- sample.int(n=length(reviews_sentiment3$review_scores_rating),size=floor(0.75*length(reviews_sentiment3$review_scores_rating)))
+train<-reviews_sentiment3[sample,]
+test<-reviews_sentiment3[-sample,]
+
+
+cor_data<-reviews_sentiment3 %>% dplyr::select(review_scores_accuracy,sentiment,review_scores_checkin,review_scores_cleanliness,review_scores_communication,review_scores_location,review_scores_rating,price)
+plot(cor_data)
+
+
+lm1<-lm(data=train,review_scores_rating~scale(price)+factor(neighbourhood_cleansed)+accommodates+bathrooms+bedrooms+property_type+room_type+review_scores_accuracy+review_scores_location+review_scores_communication+review_scores_cleanliness+review_scores_checkin)
+lm2<-step(lm5)
+
+anova(lm1)
+par(mfrow=c(2,2))
+plot(lm1)
+marginalModelPlot(lm1)
+summary(lm1)
+
+bptest(lm1)
+vif(lm1)
+lm3=step(lm1)
+summary(lm3)
+
+
+pred<-predict(lm1,data=test)
+length(pred)
+length(reviews_sentiment3$review_scores_rating)
+sum(abs(pred-train$review_scores_rating)/train$review_scores_rating)/length(pred)
+property_type
+
+lm3<-lm(data=train,review_scores_rating~scale(price)+property_type+sentiment+neighbourhood_cleansed+accommodates+bathrooms+bedrooms+room_type+review_scores_accuracy+review_scores_location+review_scores_communication+review_scores_cleanliness+review_scores_checkin)
+lm4<-step(lm3)
+lm2<-step(lm1)
+summary(lm3)
+$attach(train)
+new.train<-data.frame(property_type,sentiment,neighbourhood_cleansed,accommodates,bathrooms,review_scores_accuracy,review_scores_location,review_scores_communication,review_scores_cleanliness,review_scores_checkin)
+detach(train)
+
+attach(test)
+new.test<-data.frame(property_type,sentiment,neighbourhood_cleansed,accommodates,bathrooms,review_scores_accuracy,review_scores_location,review_scores_communication,review_scores_cleanliness,review_scores_checkin)
+detach(test)
+lm5<-lm(data=train,review_scores_rating~property_type+sentiment+neighbourhood_cleansed+accommodates+bathrooms+review_scores_accuracy+review_scores_location+review_scores_communication+review_scores_cleanliness+review_scores_checkin)
+marginalModelPlots(lm5)
+summary(lm5)
+anova(lm1,lm2,lm3,lm4,lm5)
+pre.lm5<-predict(lm5,data =new.test)
+mean(abs(pre.lm5-test$review_scores_rating)/test$review_scores_rating)
+```
+##3.2 Logistic Regression Model+Cross Validation
+```{r}
+best1<-rep(0,length(reviews_sentiment3$sentiment))
+for(i in 1:length(best1)){
+  if (reviews_sentiment3$sentiment[i]>=2){
+    best1[i]=1
+  }
+  if(reviews_sentiment3$sentiment[i]<2){
+    best1[i]=0
+  }
+}
+
+
+reviews_sentiment3$Evaluation1<-best1
+best2<-rep(0,length(reviews_sentiment3$review_scores_rating))
+for(i in 1:length(best1)){
+  if (reviews_sentiment3$review_scores_rating[i]>=90){
+    best2[i]=4
+  }
+  if(reviews_sentiment3$review_scores_rating[i]<75){
+    best2[i]=1
+  }
+  if (reviews_sentiment3$review_scores_rating[i]>=75&reviews_sentiment3$review_scores_rating[i]<80){
+    best2[i]=2
+  }
+  if(reviews_sentiment3$review_scores_rating[i]>=80&reviews_sentiment3$review_scores_rating[i]<90){
+    
+    best2[i]=3
+  }
+}
+reviews_sentiment3$Evaluation2<-best2
+dim(reviews_sentiment3)
+set.seed(723)
+sample <- sample.int(n=length(reviews_sentiment3$review_scores_rating),size=floor(0.75*length(reviews_sentiment3$review_scores_rating)))
+train_glm<-reviews_sentiment3[sample,]
+test_glm<-reviews_sentiment3[-sample,]
+train_glm$Evaluation1
+glm_fit1<-glm(data =train_glm,Evaluation1~neighbourhood_cleansed+bathrooms+bedrooms+room_type+beds+review_scores_accuracy+review_scores_location+review_scores_communication+review_scores_cleanliness+review_scores_checkin,family=binomial(link="logit"))
+display(glm_fit1)
+marginalModelPlots(glm_fit1)
+summary(glm_fit1)
+binnedplot(fitted(glm_fit1),residuals(glm_fit1,type="response"))
+
+fit2=step(glm_fit1)
+summary(fit2)
+pred<-predict(glm_fit1,test_glm)
+library(caret)
+library(ModelMetrics)
+
+for (i in 1:length(pred)){
+  if(pred[i]>0.5){
+    pred[i]=1
+  }
+  else{
+    pred[i]=0
+  }
+}
+
+caret::confusionMatrix(as.factor(test_glm$Evaluation1),as.factor(pred))
+
+
+#Roc sensetivity analysis
+a<-predict(glm_fit1,type="response")
+
+roc=roc(train_glm$Evaluation1~a)
+
+plot(roc)
+pre=rep(0,length(a))
+for (i in 1:length(a)){
+  if (a[i]>0.5){
+    pre[i]=1
+  }
+  else{
+    pre[i]=0
+  }
+}
+table=table(pre,train_glm$Evaluation1)
+kable(table)
+(table[1,1]+table[2,2])/(sum(table))
+```
+
+##3.3 Multilevel Model
+Compared with different property type, and we want to figure out the biggest difference of Airbnb between the higher reviewers'comments and lower reviewers' comments.
+
+```{r,echo=FALSE,warning=FALSE}
+reviews_sentiment3$Evaluation2<-as.numeric(reviews_sentiment3$Evaluation2)
+log_mix<-lmer(scale(review_scores_rating)~bathrooms+review_scores_location+review_scores_accuracy+review_scores_cleanliness+review_scores_communication+(1+review_scores_accuracy|neighbourhood_cleansed), data=reviews_sentiment3)
+
+log_mix1<-lmer(scale(review_scores_rating)~review_scores_location+review_scores_accuracy+review_scores_cleanliness+review_scores_communication+(1|property_type), data=reviews_sentiment3)
+log_mix2<-lmer(scale(review_scores_rating)~bathrooms+review_scores_location+review_scores_accuracy+review_scores_cleanliness+review_scores_communication+(0+review_scores_accuracy|neighbourhood_cleansed)+(1|property_type), data=reviews_sentiment3)
+log_mix3<-glmer(Evaluation2~bathrooms+review_scores_location+review_scores_accuracy+review_scores_cleanliness+review_scores_communication+(0+review_scores_accuracy|neighbourhood_cleansed)+(1|property_type), data=reviews_sentiment3,mfamily=gaussian(link="identity"))
+anova(log_mix,log_mix1,log_mix2,log_mix3)
+plot(log_mix3)
+reviews_sentiment3$neighbourhood_cleansed
+ggplot(reviews_sentiment3)+aes(x=id,y=review_scores_rating,group=neighbourhood_cleansed)+geom_line(alpha=0.3)+
+geom_smooth(method="lm",aes(group=3))+ylab("Review Scores Rating")
+plot(fitted(log_mix),resid(log_mix,type="pearson"),col="black",main="Figure 4.9Residual Plot of Log-mix")
+qqnorm(resid(log_mix))
+```
+
+
+
+
+##3.4 Latent Rating Regression Model&Aspect-based Sentiment Analysis
+
+Going beyond the overall rating to know the opinions of a reviewer on different aspects is important because different reviewers may give a hotel the same overall rating for very different reasons. For
+example, one reviewer may have liked the location, but another may have enjoyed the room. In order to help users tell this difference, it is necessary to understand a reviewer’s rating on each of the major rating aspects (i.e., rating factors) of a hotel. Furthermore, even if we can reveal the rating on an aspect such as “price”, it may still be insufficient because “cheap” may mean different price ranges for different reviewers. Even the same reviewer may use a different standard to define “cheap” depending on how critical other factors (e.g. location) are; intuitively, when a reviewer cares more about the location, the reviewer would tend to be more willing to tolerate a higher price. To understand such subtle differences, it is necessary to further reveal the relative importance weight that a reviewer placed on each aspect when assigning the overall rating.
+```{r,echo=FALSE,warning=FALSE}
+#two-step process based upon a unique regression model for latent rating. First, they used several “seed words” that described different aspects and a bootstrapping algorithm was employed to identify the words that belong to each aspect. Then, they used a generative LRR to gain the ratings of each aspect and their weights by using the customer review and overall rating. Latent regression rating specifically operates under the assumption that an overall rating is formed through the weighted sum of ratings across aspects. Wang et al. (2010) further proposed that each aspect rating is produced by the weighted combination of word features in which the weights are indicative of corresponding sentiment polarities. Because the ratings of different aspects are not observable, the aspect rating (that is, the response variable of the LRR model) is considered latent.
+
+
+
+
+
+```
+
+
+
+```{r}
+train_glm$Evaluation2
+polr1 <- polr(ordered(Evaluation2) ~ bathrooms+ review_scores_accuracy+review_scores_location+neighbourhood_cleansed+review_scores_communication+review_scores_cleanliness+review_scores_checkin , data = train_glm)
+display(polr1)
+
+##make prediction
+
+predx <- expand.grid(neighbourhood_cleansed=test_glm$neighbourhood_cleansed,
+                     Evaluation2=test_glm$Evaluation2)
+dim(test_glm)
+View(predx)
+length(test_glm$Evaluation2)
+predy <- predict(polr1, newdata = test_glm, type = "probs")
+obsmat <-model.matrix(~Evaluation2-1,data=test_glm)
+
+
+```
+
+
+#####predictor : "review_cat","categ.temp","RestaurantsPriceRange2","NoiseLevel"
+```{r}
+library(data.table)
+resd <- data.frame(review_scores_cleanliness=predx[,1],Evaluation2=predx[,2],Evaluation2 = predy)
+
+temp <- melt(resd, id.vars = c("review_scores_cleanliness","Evaluation2"))
+
+
+ggplot(temp)+
+geom_bar(position = "fill",stat="identity")+
+aes(x=review_scores_cleanliness,y=value,fill=variable)+
+geom_hline(yintercept=0.5,lty=2)+
+theme(axis.text.x = element_text(angle = 45, hjust = 1))+labs(title = "Evaulation of Different Neighbourhoods",x="Neighbourhoods")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
